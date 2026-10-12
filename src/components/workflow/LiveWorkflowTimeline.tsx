@@ -154,35 +154,35 @@ export function LiveWorkflowTimeline({ documentId, onClose, showBackButton = tru
     const s = (stageStatus || '').toUpperCase();
     if (s === 'COMPLETED') {
       return (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
           Completed
         </span>
       );
     }
     if (s === 'RUNNING') {
       return (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200">
-          <Loader2 className="w-3 h-3 mr-1 animate-spin text-orange-500" />
-          Running
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-50 text-orange-700 border border-orange-200 shadow-2xs">
+          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-orange-500" />
+          Processing...
         </span>
       );
     }
     if (s === 'NEEDS_REVIEW' || s === 'REJECTED') {
       return (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
           Needs Review
         </span>
       );
     }
     if (s === 'FAILED') {
       return (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
           Failed
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200">
+      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-400 border border-gray-200">
         Waiting
       </span>
     );
@@ -199,8 +199,8 @@ export function LiveWorkflowTimeline({ documentId, onClose, showBackButton = tru
     }
     if (s === 'RUNNING') {
       return (
-        <div className="w-7 h-7 rounded-full bg-orange-500 text-white flex items-center justify-center text-xs font-bold animate-pulse shadow-sm">
-          {stepNum}
+        <div className="w-7 h-7 rounded-full bg-orange-500 text-white flex items-center justify-center text-xs font-bold shadow-sm ring-4 ring-orange-100 animate-pulse">
+          <Loader2 className="w-4 h-4 animate-spin text-white" />
         </div>
       );
     }
@@ -212,7 +212,7 @@ export function LiveWorkflowTimeline({ documentId, onClose, showBackButton = tru
       );
     }
     return (
-      <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-xs font-semibold">
+      <div className="w-7 h-7 rounded-full bg-gray-100 border border-gray-300 text-gray-400 flex items-center justify-center text-xs font-semibold">
         {stepNum}
       </div>
     );
@@ -322,7 +322,7 @@ export function LiveWorkflowTimeline({ documentId, onClose, showBackButton = tru
                 {!isLast && (
                   <div 
                     className={`absolute left-[13px] top-[28px] w-[2px] bottom-[-8px] transition-colors ${
-                      stage.status === 'COMPLETED' ? 'bg-emerald-300' : 'bg-gray-200'
+                      stage.status === 'COMPLETED' ? 'bg-emerald-400' : (stage.status === 'RUNNING' ? 'bg-orange-300' : 'bg-gray-200')
                     }`} 
                   />
                 )}
