@@ -35,7 +35,7 @@ export default function CleanDataPage() {
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedSupplier, setSelectedSupplier] = useState('');
-  const [targetCurrency, setTargetCurrency] = useState('EUR');
+  const [targetCurrency, setTargetCurrency] = useState('ALL');
   const [fxMode, setFxMode] = useState<'MATCHED' | 'CONVERTED'>('MATCHED');
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -59,13 +59,15 @@ export default function CleanDataPage() {
     fetchCleanData();
   }, []);
 
-  // Extract unique suppliers and years dynamically from items
-  const { availableSuppliers, availableYears } = useMemo(() => {
+  // Extract unique suppliers, years, and currencies dynamically from data
+  const { availableSuppliers, availableYears, availableCurrencies } = useMemo(() => {
     const suppliersSet = new Set<string>();
     const yearsSet = new Set<string>();
+    const currenciesSet = new Set<string>();
 
     items.forEach((item) => {
       if (item.Supplier) suppliersSet.add(item.Supplier.trim());
+      if (item.Currency) currenciesSet.add(item.Currency.trim().toUpperCase());
       if (item.Date) {
         const y = item.Date.slice(0, 4);
         if (y && !isNaN(Number(y))) yearsSet.add(y);
@@ -74,7 +76,8 @@ export default function CleanDataPage() {
 
     return {
       availableSuppliers: Array.from(suppliersSet).sort(),
-      availableYears: Array.from(yearsSet).sort().reverse()
+      availableYears: Array.from(yearsSet).sort().reverse(),
+      availableCurrencies: Array.from(currenciesSet).sort()
     };
   }, [items]);
 
@@ -85,8 +88,8 @@ export default function CleanDataPage() {
       const itemSupplier = (item.Supplier || '').trim().toLowerCase();
       const itemCurr = (item.Currency || 'USD').trim().toUpperCase();
 
-      // Currency filter if exact mode
-      if (fxMode === 'MATCHED' && targetCurrency) {
+      // Currency filter if exact mode and targetCurrency is not ALL
+      if (fxMode === 'MATCHED' && targetCurrency && targetCurrency !== 'ALL') {
         if (itemCurr !== targetCurrency.toUpperCase()) return false;
       }
 
@@ -132,18 +135,21 @@ export default function CleanDataPage() {
   }, [items, fxMode, targetCurrency, selectedSupplier, fromDate, toDate, selectedYear, selectedMonth, searchQuery]);
 
   // Calculate Spend Totals for the filtered dataset
-  const { totalSpend, uniqueInvoices } = useMemo(() => {
+  const { totalSpend, uniqueInvoices, spendByCurrency } = useMemo(() => {
     let spend = 0;
     const invoices = new Set<string>();
+    const byCurr: Record<string, number> = {};
 
     filteredItems.forEach((item) => {
       if (item.Invoice) invoices.add(item.Invoice);
       const lineTotal = Number(item['Line Total'] || 0);
+      const itemCurr = (item.Currency || 'USD').toUpperCase();
+      byCurr[itemCurr] = (byCurr[itemCurr] || 0) + lineTotal;
 
       if (fxMode === 'CONVERTED') {
-        const itemCurr = (item.Currency || 'USD').toUpperCase();
+        const convTarget = targetCurrency === 'ALL' ? 'USD' : targetCurrency;
         const itemRate = FX_TO_USD[itemCurr] || 1.0;
-        const targetRate = FX_TO_USD[targetCurrency.toUpperCase()] || 1.0;
+        const targetRate = FX_TO_USD[convTarget.toUpperCase()] || 1.0;
         const totalInUSD = lineTotal * itemRate;
         const converted = totalInUSD / targetRate;
         spend += converted;
@@ -152,7 +158,7 @@ export default function CleanDataPage() {
       }
     });
 
-    return { totalSpend: spend, uniqueInvoices: invoices.size };
+    return { totalSpend: spend, uniqueInvoices: invoices.size, spendByCurrency: byCurr };
   }, [filteredItems, fxMode, targetCurrency]);
 
   const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
@@ -342,10 +348,14 @@ export default function CleanDataPage() {
               onChange={e => { setTargetCurrency(e.target.value); setPage(1); }} 
               className="w-full bg-slate-50/70 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white shadow-xs cursor-pointer"
             >
-              <option value="EUR">EUR (€) Euro</option>
-              <option value="USD">USD ($) US Dollar</option>
-              <option value="GBP">GBP (£) British Pound</option>
-              <option value="INR">INR (₹) Indian Rupee</option>
+              <option value="ALL">All Currencies (By Data)</option>
+              {availableCurrencies.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+              {!availableCurrencies.includes('INR') && <option value="INR">INR (₹) Indian Rupee</option>}
+              {!availableCurrencies.includes('USD') && <option value="USD">USD ($) US Dollar</option>}
+              {!availableCurrencies.includes('EUR') && <option value="EUR">EUR (€) Euro</option>}
+              {!availableCurrencies.includes('GBP') && <option value="GBP">GBP (£) British Pound</option>}
             </select>
           </div>
         </div>
@@ -376,16 +386,36 @@ export default function CleanDataPage() {
         {/* Total Spend */}
         <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs">
           <div className="flex justify-between items-center text-[11px] font-bold text-slate-500 font-mono uppercase">
-            <span>Filtered Spend ({targetCurrency})</span>
+            <span>Filtered Spend {targetCurrency === 'ALL' ? '(Original By Data)' : `(${targetCurrency})`}</span>
             <span className={`px-2 py-0.5 rounded-full text-[10px] ${fxMode === 'CONVERTED' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>
-              {fxMode === 'CONVERTED' ? 'FX Consolidated' : 'Strict Currency'}
+              {fxMode === 'CONVERTED' ? 'FX Consolidated' : 'By Data Currency'}
             </span>
           </div>
           <div className="text-2xl font-extrabold text-slate-900 font-mono mt-1">
-            {currencySymbol}{totalSpend.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {targetCurrency === 'ALL' && fxMode === 'MATCHED' ? (
+              Object.keys(spendByCurrency).length === 1 ? (
+                `${Object.keys(spendByCurrency)[0] === 'INR' ? '₹' : Object.keys(spendByCurrency)[0] === 'EUR' ? '€' : Object.keys(spendByCurrency)[0] === 'USD' ? '$' : Object.keys(spendByCurrency)[0] === 'GBP' ? '£' : ''}${spendByCurrency[Object.keys(spendByCurrency)[0]].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              ) : Object.keys(spendByCurrency).length > 1 ? (
+                <div className="text-sm font-semibold flex flex-wrap gap-1.5 py-1">
+                  {Object.entries(spendByCurrency).map(([curr, val]) => (
+                    <span key={curr} className="inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-800 text-xs">
+                      {curr}: {val.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                '0.00'
+              )
+            ) : (
+              `${currencySymbol}${totalSpend.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            )}
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5">
-            {fxMode === 'CONVERTED' ? `All filtered items converted to ${targetCurrency}` : `Only invoices in ${targetCurrency}`}
+            {fxMode === 'CONVERTED' 
+              ? `All filtered items converted to ${targetCurrency === 'ALL' ? 'USD' : targetCurrency}` 
+              : targetCurrency === 'ALL' 
+                ? 'Showing amounts in original document currencies' 
+                : `Only documents in ${targetCurrency}`}
           </div>
         </div>
 
@@ -445,7 +475,7 @@ export default function CleanDataPage() {
             <thead className="bg-slate-50/90">
               <tr>
                 <th className="px-4 py-3.5 text-left text-[11px] font-bold text-slate-600 uppercase tracking-wider">Date</th>
-                <th className="px-4 py-3.5 text-left text-[11px] font-bold text-slate-600 uppercase tracking-wider">Invoice</th>
+                <th className="px-4 py-3.5 text-left text-[11px] font-bold text-slate-600 uppercase tracking-wider">Doc # / Invoice</th>
                 <th className="px-4 py-3.5 text-left text-[11px] font-bold text-slate-600 uppercase tracking-wider">Supplier</th>
                 <th className="px-4 py-3.5 text-left text-[11px] font-bold text-slate-600 uppercase tracking-wider">SKU</th>
                 <th className="px-4 py-3.5 text-left text-[11px] font-bold text-slate-600 uppercase tracking-wider">Product Description</th>
