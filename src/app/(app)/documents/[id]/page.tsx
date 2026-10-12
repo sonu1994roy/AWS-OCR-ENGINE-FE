@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { AlertTriangle, CheckCircle, Save, ArrowLeft } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Save, ArrowLeft, Trash2, Plus } from 'lucide-react';
 import api from '@/lib/api';
 
 export default function DocumentDetail() {
@@ -37,7 +37,42 @@ export default function DocumentDetail() {
 
   const handleItemChange = (index: number, field: string, value: string | number) => {
     const newItems = [...items];
-    newItems[index][field] = value;
+    const updatedItem = { ...newItems[index], [field]: value };
+
+    // Auto-recalculate line_total when quantity or unit_price changes
+    if (field === 'quantity' || field === 'unit_price') {
+      const q = Number(field === 'quantity' ? value : updatedItem.quantity) || 0;
+      const p = Number(field === 'unit_price' ? value : updatedItem.unit_price) || 0;
+      updatedItem.line_total = Math.round(q * p * 100) / 100;
+    }
+
+    newItems[index] = updatedItem;
+    setItems(newItems);
+
+    // Auto-recalculate subtotal
+    const newSub = newItems.reduce((acc, curr) => acc + (Number(curr.line_total) || 0), 0);
+    setSubtotal(Math.round(newSub * 100) / 100);
+  };
+
+  const handleDeleteItem = (index: number) => {
+    const newItems = items.filter((_, idx) => idx !== index);
+    setItems(newItems);
+    const newSub = newItems.reduce((acc, curr) => acc + (Number(curr.line_total) || 0), 0);
+    setSubtotal(Math.round(newSub * 100) / 100);
+  };
+
+  const handleAddItem = () => {
+    const newItems = [
+      ...items,
+      {
+        sku: '',
+        description: 'New Line Item',
+        quantity: 1,
+        unit: 'pcs',
+        unit_price: 0,
+        line_total: 0
+      }
+    ];
     setItems(newItems);
   };
 
@@ -45,18 +80,46 @@ export default function DocumentDetail() {
     if (!doc) return;
     setSaving(true);
     
+    // Deduplicate items by SKU & Description in-place before sending
+    const itemsMap = new Map<string, any>();
+    items.forEach((item, idx) => {
+      const sku = (item.sku || '').trim().toUpperCase();
+      const desc = (item.description || '').trim().toUpperCase();
+      const key = (sku || desc) ? `${sku}_${desc}` : `item_${idx}`;
+      
+      const qty = Number(item.quantity) || 0;
+      const price = Number(item.unit_price) || 0;
+      const lt = Number(item.line_total) || Math.round(qty * price * 100) / 100;
+      const isMatch = Math.abs(lt - (qty * price)) <= 0.01;
+
+      const itemPayload = {
+        ...item,
+        quantity: qty,
+        unit_price: price,
+        line_total: lt,
+      };
+
+      if (itemsMap.has(key)) {
+        const existing = itemsMap.get(key);
+        const exMatch = Math.abs(existing.line_total - (existing.quantity * existing.unit_price)) <= 0.01;
+        if (isMatch || !exMatch) {
+          itemsMap.set(key, itemPayload);
+        }
+      } else {
+        itemsMap.set(key, itemPayload);
+      }
+    });
+
+    const deduplicatedItems = Array.from(itemsMap.values());
+    const finalSubtotal = Math.round(deduplicatedItems.reduce((acc, it) => acc + (Number(it.line_total) || 0), 0) * 100) / 100;
+
     // Create updated document payload
     const updatedDoc = {
       ...doc,
       data: {
         ...doc.data,
-        subtotal: Number(subtotal),
-        items: items.map(item => ({
-          ...item,
-          quantity: Number(item.quantity),
-          unit_price: Number(item.unit_price),
-          line_total: Number(item.line_total),
-        }))
+        subtotal: finalSubtotal,
+        items: deduplicatedItems
       }
     };
     
@@ -197,8 +260,19 @@ export default function DocumentDetail() {
 
       <div className="bg-white shadow sm:rounded-lg overflow-hidden mt-6">
         <div className="px-4 py-5 sm:px-6 flex justify-between items-center">
-          <h3 className="text-base font-semibold leading-6 text-gray-900">Line Items</h3>
-          {isRejected && <span className="text-sm text-gray-500">Edit values to fix calculation mismatches</span>}
+          <h3 className="text-base font-semibold leading-6 text-gray-900">Line Items ({items.length})</h3>
+          {isRejected && (
+            <div className="flex items-center space-x-3">
+              <button
+                type="button"
+                onClick={handleAddItem}
+                className="inline-flex items-center px-2.5 py-1.5 text-xs font-semibold rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add Item
+              </button>
+              <span className="text-xs text-gray-500">Edit values to fix calculation mismatches</span>
+            </div>
+          )}
         </div>
         <div className="overflow-x-auto border-t border-gray-200">
           <table className="min-w-full divide-y divide-gray-300">
@@ -209,28 +283,65 @@ export default function DocumentDetail() {
                 <th className="px-3 py-3.5 text-right text-sm font-semibold text-gray-900">Qty</th>
                 <th className="px-3 py-3.5 text-right text-sm font-semibold text-gray-900">Unit Price</th>
                 <th className="px-3 py-3.5 text-right text-sm font-semibold text-gray-900">Line Total</th>
+                {isRejected && (
+                  <th className="px-3 py-3.5 text-center text-sm font-semibold text-gray-900 w-16">Action</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
               {items.map((item, idx) => (
-                <tr key={idx}>
-                  <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-900">{item.sku}</td>
-                  <td className="px-3 py-4 text-sm text-gray-500 max-w-xs truncate">{item.description}</td>
+                <tr key={idx} className="hover:bg-slate-50 transition">
+                  <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-900 font-mono">
+                    {isRejected ? (
+                      <input
+                        type="text"
+                        value={item.sku || ''}
+                        onChange={(e) => handleItemChange(idx, 'sku', e.target.value)}
+                        className="w-28 rounded-md border-gray-300 shadow-sm sm:text-sm font-mono"
+                        placeholder="SKU"
+                      />
+                    ) : item.sku}
+                  </td>
+                  <td className="px-3 py-4 text-sm text-gray-500 max-w-xs">
+                    {isRejected ? (
+                      <input
+                        type="text"
+                        value={item.description || ''}
+                        onChange={(e) => handleItemChange(idx, 'description', e.target.value)}
+                        className="w-full rounded-md border-gray-300 shadow-sm sm:text-sm"
+                        placeholder="Product Description"
+                      />
+                    ) : (
+                      <span className="truncate block">{item.description}</span>
+                    )}
+                  </td>
                   <td className="whitespace-nowrap px-3 py-4 text-sm text-right">
                     {isRejected ? (
-                      <input type="number" value={item.quantity} onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)} className="w-20 text-right rounded-md border-gray-300 shadow-sm sm:text-sm" />
+                      <input type="number" step="any" value={item.quantity} onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)} className="w-20 text-right rounded-md border-gray-300 shadow-sm sm:text-sm" />
                     ) : item.quantity}
                   </td>
                   <td className="whitespace-nowrap px-3 py-4 text-sm text-right">
                     {isRejected ? (
-                      <input type="number" value={item.unit_price} onChange={(e) => handleItemChange(idx, 'unit_price', e.target.value)} className="w-24 text-right rounded-md border-gray-300 shadow-sm sm:text-sm" />
+                      <input type="number" step="any" value={item.unit_price} onChange={(e) => handleItemChange(idx, 'unit_price', e.target.value)} className="w-24 text-right rounded-md border-gray-300 shadow-sm sm:text-sm" />
                     ) : item.unit_price}
                   </td>
                   <td className="whitespace-nowrap px-3 py-4 text-sm text-right font-medium">
                     {isRejected ? (
-                      <input type="number" value={item.line_total} onChange={(e) => handleItemChange(idx, 'line_total', e.target.value)} className="w-24 text-right rounded-md border-gray-300 shadow-sm sm:text-sm border-indigo-200 bg-indigo-50" />
+                      <input type="number" step="any" value={item.line_total} onChange={(e) => handleItemChange(idx, 'line_total', e.target.value)} className="w-28 text-right rounded-md border-gray-300 shadow-sm sm:text-sm border-indigo-200 bg-indigo-50 font-bold" />
                     ) : item.line_total}
                   </td>
+                  {isRejected && (
+                    <td className="whitespace-nowrap px-3 py-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteItem(idx)}
+                        className="text-red-500 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition cursor-pointer"
+                        title="Delete duplicate or wrong line item"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
